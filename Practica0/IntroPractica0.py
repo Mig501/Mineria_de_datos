@@ -21,7 +21,7 @@ df.head(5)
 #List the columns of the dataframe
 print("Columns: ", df.columns)
 
-#With distict we can remove duplicates
+#With distinct we can remove duplicates
 df = df.distinct()
 print("Number of rows without duplicates: ", df.count())
 
