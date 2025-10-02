@@ -21,7 +21,7 @@ class Controller:
         self.view.schema(df_mod)
         self.view.head(df_mod, n=6)
 
-        return df_raw
+        return df_mod
 
     def ej1b(self, df_raw) -> None:
         df_mod = self.logic.remove_mc_suffix(df_raw)
@@ -57,10 +57,10 @@ class Controller:
 
         return df_cleaned
     
-    def ej2b(self, df_raw) -> None:
+    def ej2b(self, df_no_mc) -> None:
         self.view.title("Ej2b")
 
-        df_date = self.logic.convert_to_date(df_raw)
+        df_date = self.logic.convert_to_date(df_no_mc)
 
         min_date = df_date.agg({"Fecha": "min"}).collect()[0][0]
         max_date = df_date.agg({"Fecha": "max"}).collect()[0][0]
@@ -74,3 +74,17 @@ class Controller:
         self.view.title(f"Comentario")
         self.view.title(f"Si el periodo es corto o tiene huecos, sería útil buscar más datos para completar las fechas.")
 
+    def ej3(self, df_no_mc) -> None:
+        self.view.title("Ej3")
+
+        df_renamed = self.logic.rename_columns(df_no_mc, "Fecha", "Dia")
+        self.view.head(df_renamed, n=10)
+
+        df_annual_stats = self.logic.calculate_annual_stats(df_renamed)
+        for stats in df_annual_stats:
+            self.view.head(stats, n=1)
+
+        df_with_deficiency = self.logic.create_deficiency_notice(df_renamed)
+        self.view.head(df_with_deficiency, n=100)
+
+        return df_with_deficiency

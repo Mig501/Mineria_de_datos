@@ -1,4 +1,5 @@
 from pyspark.sql import DataFrame, functions as F
+from pyspark.sql.window import Window
 
 class Logic:
     def convert_to_date(self, df: DataFrame) -> DataFrame:
@@ -80,3 +81,42 @@ class Logic:
     def count_days_with_data(self, df_cleaned):
         days_available = df_cleaned.filter(df_cleaned["Fecha"].isNotNull()).count()
         return days_available
+    
+    def rename_columns(self, df_raw, col1, col2):
+        df_renamed = df_raw.withColumnRenamed(col1, col2)
+        return df_renamed
+    
+    def calculate_annual_stats(self, df):
+        df = df.withColumn("Year", F.year(F.col("Dia")))
+
+        stats = []
+        for column in df.columns:
+            if column != "Dia" and column != "Year":
+                stats.append(
+                    df.groupBy("Year").agg(
+                        F.round(F.avg(column), 2).alias(f"Anual mean {column}"),
+                        F.max(column).alias(f"Max anual {column}"),
+                        F.min(column).alias(f"Min anual {column}")
+                    )
+                )
+
+        return stats
+
+    def create_deficiency_notice(self, df):
+        window_spec = Window.orderBy("Dia").rowsBetween(-30, 0)
+
+        df = df.withColumn(
+            "Deficiency Notice UNI",
+            F.when(
+                F.col("UNI") < 1, True
+            ).otherwise(False)
+        )
+
+        df = df.withColumn(
+            "Deficiency Notice UNI",
+            F.sum(F.when(F.col("UNI") < 1, 1).otherwise(0)).over(window_spec) >= 30
+        )
+
+        return df
+    
+    
