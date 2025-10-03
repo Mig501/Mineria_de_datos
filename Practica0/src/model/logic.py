@@ -75,9 +75,14 @@ class Logic:
         return rows_deleted
     
     def available_companies(self, df_cleaned):
-        available_companies = df_cleaned.dropna(subset=["IBE", "REP", "NTGY", "ELE", "ENG", "RED"]).count()
+        available_companies = len(df_cleaned.columns) - 1 
         return available_companies
 
+    def get_dates(self, df_date):
+        min_date = df_date.agg({"Fecha": "min"}).collect()[0][0]
+        max_date = df_date.agg({"Fecha": "max"}).collect()[0][0]
+        return min_date, max_date
+    
     def count_days_with_data(self, df_cleaned):
         days_available = df_cleaned.filter(df_cleaned["Fecha"].isNotNull()).count()
         return days_available

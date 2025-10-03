@@ -62,9 +62,7 @@ class Controller:
 
         df_date = self.logic.convert_to_date(df_no_mc)
 
-        min_date = df_date.agg({"Fecha": "min"}).collect()[0][0]
-        max_date = df_date.agg({"Fecha": "max"}).collect()[0][0]
-
+        min_date, max_date = self.logic.get_dates(df_date)
         self.view.title(f"Fecha inicial: {min_date}")
         self.view.title(f"Fecha final: {max_date}")
 
