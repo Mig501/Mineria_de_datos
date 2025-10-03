@@ -22,7 +22,7 @@ class Controller:
         self.view.schema(df_mod)
         self.view.head(df_mod, n=6)
 
-        return df_mod
+        return df_raw, df_mod
 
     # Ejercicio 1b
     def ej1b(self, df_raw):
@@ -59,6 +59,8 @@ class Controller:
         self.view.title(f"Compañías con datos disponibles: {available_companies}")
 
         self.view.head(df_cleaned, n=6)
+
+        return df_cleaned
 
     # Ejercicio 2b
     def ej2b(self, df_no_mc) -> None:
@@ -111,6 +113,15 @@ class Controller:
 
         cols_to_show = ["Dia", "AENA", "BBVA", "AENA_cuartil", "BBVA_cuartil"]
         df_quartiles.select(*cols_to_show).show(truncate=False)
+
+    def store_raw_data(self, df_raw):
+        self.logic.save_to_sql(df_raw, "Datos2024", mode="overwrite")
+        print("Datos originales guardados en la tabla 'Datos2024'.")
+
+    # Guarda CSV limpio/tratado
+    def store_cleaned_data(self, df_cleaned):
+        self.logic.save_to_sql(df_cleaned, "Datos2024_Tratados", mode="overwrite")
+        print("Datos tratados guardados en la tabla 'Datos2024_Tratados'.")
 
     def finish(self):
         self.spark.stop()

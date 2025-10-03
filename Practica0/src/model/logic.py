@@ -183,3 +183,23 @@ class Logic:
             )
 
         return df
+
+    def save_to_sql(self, df, table_name, mode="overwrite"):
+        """
+        Guarda un DataFrame de PySpark en una tabla MySQL mediante JDBC.
+        df: DataFrame a guardar
+        table_name: nombre de la tabla
+        mode: overwrite, append, ignore, error
+        """
+        url = "jdbc:mysql://localhost:3306/IBEX35"
+        properties = {
+            "user": "root",
+            "password": "changeme",
+            "driver": "com.mysql.cj.jdbc.Driver"
+        }
+        df.write.jdbc(
+            url="jdbc:mysql://localhost:3306/IBEX35",
+            table = table_name,
+            mode = mode,
+            properties=properties
+        )
