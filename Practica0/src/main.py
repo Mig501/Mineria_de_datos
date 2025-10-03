@@ -3,6 +3,7 @@ from controller.controller import Controller
 
 def main():
     spark = get_spark()
+    spark.sparkContext.setLogLevel("ERROR")
 
     controller = Controller(spark)
 
@@ -10,13 +11,19 @@ def main():
 
     df_no_mc = controller.ej1b(df_mod)
 
-    #df_structed = controller.ej1c("data/ibex35_close-2024.csv")
+    controller.ej1c("data/ibex35_close-2024.csv")
 
-    df_cleaned = controller.ej2a(df_no_mc)
+    controller.ej2a(df_no_mc)
 
-    #controller.ej2b(df_mod)
+    controller.ej2b(df_mod)
 
-    #df_with_deficiency = controller.ej3(df_no_mc)
+    controller.ej3(df_no_mc)
+
+    controller.ej4(df_no_mc)
+
+    controller.ej5(df_no_mc)
+
+    controller.finish()
 
 if __name__ == "__main__":
     main()

@@ -10,10 +10,11 @@ class Controller:
         self.model = Model(spark)   
         self.logic = Logic()       
 
-    def ej1a(self, path_csv: str) -> None:
+    # Ejercicio 1a
+    def ej1a(self, path_csv: str):
+        self.view.title("Ej1-a")
         df_raw = self.model.load_csv(path_csv)
 
-        self.view.title("Ej1-a")
         self.view.schema(df_raw)
 
         df_mod = self.logic.convert_to_date(df_raw)
@@ -23,30 +24,34 @@ class Controller:
 
         return df_mod
 
-    def ej1b(self, df_raw) -> None:
+    # Ejercicio 1b
+    def ej1b(self, df_raw):
+        self.view.title("Ej1-b")
+
         df_mod = self.logic.remove_mc_suffix(df_raw)
 
-        self.view.title("Ej1-b")
         self.view.schema(df_mod)
         self.view.head(df_mod, n=6)
 
         return df_mod
     
-    def ej1c(self, path_csv: str) -> None:
+    # Ejercicio 1c
+    def ej1c(self, path_csv: str):
+        self.view.title("Ej1-c")
+
         df_raw = self.model.load_with_struct_type(path_csv)
 
         df_mod = self.logic.rename_tickers(df_raw)
 
-        self.view.title("Ej1-c")
         self.view.schema(df_mod)
         self.view.head(df_mod, n=6)
 
-    
+    # Ejercicio 2a
     def ej2a(self, df_raw) -> None:
-        
+        self.view.title("Ej2a")
+
         df_cleaned = self.logic.remove_duplicates_and_empty_columns(df_raw)
 
-        self.view.title("Ej2a")
         rows_deleted = self.logic.rows_deleted(df_raw, df_cleaned)
         self.view.title(f"Filas eliminadas: {rows_deleted}")
 
@@ -55,8 +60,7 @@ class Controller:
 
         self.view.head(df_cleaned, n=6)
 
-        return df_cleaned
-    
+    # Ejercicio 2b
     def ej2b(self, df_no_mc) -> None:
         self.view.title("Ej2b")
 
@@ -72,6 +76,7 @@ class Controller:
         self.view.title(f"Comentario")
         self.view.title(f"Si el periodo es corto o tiene huecos, sería útil buscar más datos para completar las fechas.")
 
+    # Ejercicio 3
     def ej3(self, df_no_mc) -> None:
         self.view.title("Ej3")
 
@@ -85,4 +90,28 @@ class Controller:
         df_with_deficiency = self.logic.create_deficiency_notice(df_renamed)
         self.view.head(df_with_deficiency, n=100)
 
-        return df_with_deficiency
+    # Ejercicio 4
+    def ej4(self, df_no_mc):
+        self.view.title("Ej4")
+
+        variations = self.logic.calculate_variation_classification(df_no_mc)
+
+        for row in variations:
+            self.view.title(f"Ticker: {row[0]}, Variación: {row[1]}%, Clasificación: {row[2]}")
+
+    # Ejercicio 5
+    def ej5(self, df_no_mc):
+        self.view.title("Ej5")
+
+        df_date = self.logic.convert_to_date(df_no_mc)
+        df_day = self.logic.rename_columns(df_date, "Fecha", "Dia")
+        df_quartiles = self.logic.assign_quartiles(df_day)
+
+        df_quartiles.show(1, truncate=False)
+
+        cols_to_show = ["Dia", "AENA", "BBVA", "AENA_cuartil", "BBVA_cuartil"]
+        df_quartiles.select(*cols_to_show).show(truncate=False)
+
+    def finish(self):
+        self.spark.stop()
+        self.view.title("Spark session stopped.\n")
