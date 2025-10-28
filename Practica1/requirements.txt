@@ -1,1 +1,4 @@
-pyspark==3.5.1
+pyspark
+yfinance
+pandas
+pyarrow

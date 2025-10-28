@@ -4,7 +4,6 @@ import time
 import json
 from datetime import datetime, timezone, timedelta
 
-
 DATA = {
   "BBVA.MC": [
  {

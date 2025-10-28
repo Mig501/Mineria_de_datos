@@ -1,35 +1,49 @@
-# ---------------- controller.py ----------------
-from model.connection.spark_session import SparkSessionManager
-from model.datasources.yahoo_source import YahooFinanceSource
-from model.datasources.socket_source import SocketTickSource
-from model.transformers.market_transformer import MarketTransformer
-from model.transformers.ohlc_aggregator import aggregate_ticks_to_ohlc
-from model.io.parquet_io import ParquetIO
+from pyspark.sql import SparkSession, DataFrame
+from view.view import View
+from model.model import Model
+from model.logic import Logic
 
 class Controller:
-    def __init__(self):
-        self.spark = SparkSessionManager.get_session()
-        self.source = YahooFinanceSource()
+    def __init__(self, spark: SparkSession):
+        self.spark = spark
+        self.view = View()
+        self.model = Model(spark)
+        self.logic = Logic()
 
-    # === Ej1a: YFinance ===
-    def ej1a_download_history_to_spark(
-        self, ticker, start, end, interval="1d", parquet_path=None, save_mode="overwrite"
-    ):
-        pdf = self.source.fetch_history(ticker, start, end, interval)
-        sdf = MarketTransformer.pandas_to_spark_market_df(self.spark, pdf)
-        if parquet_path:
-            ParquetIO.write_parquet(sdf, parquet_path, mode=save_mode)
-        return sdf
+    def run_ej1a(self, ticker: str, start: str, end: str, interval: str , preview_n: int) -> DataFrame:
+        
+        pdf = self.model.load_from_socket()
 
-    # === Ej1a: Socket ===
-    def ej1a_from_socket(
-        self, host="localhost", port=8080, max_rows=200, window="1D",
-        parquet_path=None, save_mode="overwrite"
-    ):
-        src = SocketTickSource(host, port)
-        ticks_iter = src.iter_ticks(max_rows=max_rows)
-        pdf = aggregate_ticks_to_ohlc(ticks_iter, window=window)
-        sdf = MarketTransformer.pandas_to_spark_market_df(self.spark, pdf)
-        if parquet_path:
-            ParquetIO.write_parquet(sdf, parquet_path, mode=save_mode)
+        sdf = self.logic.pandas_to_spark(self.spark, pdf, ticker)
+
+        self.view.title("Ej1-a")
+        self.view.head(sdf, n=preview_n)
+        self.view.schema(sdf)
+
         return sdf
+    
+    def run_ej1b(self, sdf:DataFrame) -> DataFrame:
+
+        if sdf.rdd.isEmpty():
+            self.view.title("No se puede limpiar porque no hay datos.")
+            return sdf
+
+        sdf_clean = self.logic.clean_and_validate_data(sdf)
+
+        if sdf_clean.rdd.isEmpty():
+            self.view.title("Todos los registros fueron eliminados tras la limpieza.")
+        else:
+            self.view.title("Ej1-b")
+            self.view.count(sdf)
+            self.view.count(sdf_clean)
+            self.view.title("""Comprobaciones realizadas:
+                                    1. Duplicados: se eliminan registros repetidos de mismo Date y Ticker.
+                                    2. Nulos: se eliminan filas con valores nulos en campos esenciales.
+                                    3. Tipos: se asegura que las columnas numéricas son float (DoubleType) o long (LongType).
+                                    4. Negativos: no se permiten precios o volúmenes negativos.
+                                    5. Coherencia: High >= Low, y Close debe estar dentro del rango [Low, High].""")
+        return sdf_clean
+
+    def finish(self):
+        self.spark.stop()
+        self.view.title("Spark session stopped.\n")

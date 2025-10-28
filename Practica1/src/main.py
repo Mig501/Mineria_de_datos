@@ -1,28 +1,24 @@
-# ---------------- main.py ----------------
 from controller.controller import Controller
-from view.view import CLIView
-from model.connection.spark_session import SparkSessionManager
+from model.SparkSession import get_spark
 
 def main():
-    ctrl = Controller()
+    ticker = None
+    start = None
+    end = None
+    interval = None
 
-    # Ejemplo de uso — Ej1a con YFinance
-    # sdf = ctrl.ej1a_download_history_to_spark(
-    #     ticker="AAPL", start="2024-01-01", end="2024-12-31", interval="1d",
-    #     parquet_path="./data/market/aapl"
-    # )
+    spark = get_spark()
 
-    # Ejemplo de uso — Ej1a con Socket (datos.py)
-    sdf = ctrl.ej1a_from_socket(
-        host="localhost",
-        port=8080,
-        max_rows=100,
-        window="1D",
-        parquet_path="./data/market/socket_demo"
-    )
+    ctrl = Controller(spark)
 
-    CLIView.show_head(sdf, n=5)
-    SparkSessionManager.stop()
+    # Ej1-a
+    sdf = ctrl.run_ej1a(ticker=ticker, start=start, end=end, interval=interval, preview_n=10)
+    
+    # Ej1-b
+    sdf_clean = ctrl.run_ej1b(sdf)
+
+    # Finalizar
+    ctrl.finish()
 
 if __name__ == "__main__":
     main()
