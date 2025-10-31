@@ -12,4 +12,4 @@ class View:
 
     def count(self, df: DataFrame) -> None:
         cnt = df.count()
-        print(f"Total records: {cnt}")
+        self.title(f"Número total de registros: {cnt}")
