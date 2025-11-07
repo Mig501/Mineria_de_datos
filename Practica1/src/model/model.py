@@ -6,7 +6,7 @@ import yfinance as yf
 import importlib.util, os
 from typing import List, Dict, Any
 from pyspark.sql import SparkSession, DataFrame
-from model.logic import Logic
+from pyspark.sql import functions as F
 
 class Model:
     def __init__(self, spark: SparkSession):
@@ -94,79 +94,131 @@ class Model:
                             })
                 except Exception:
                     pass  
-
         return self._records_to_standard_pdf(registros)
 
-    def fetch_from_yfinance(self,
-                            ticker: str,
-                            start: str,
-                            end: str,
-                            interval: str = "1d") -> pd.DataFrame:
-        df_yf = yf.download(
-            ticker,
-            start=start,
-            end=end,
-            interval=interval,
-            auto_adjust=False,
-            progress=False
+    def fetch_from_yfinance(self, **params) -> pd.DataFrame:
+        ticker   = params.pop("ticker", "IBE.MC")
+        start    = params.pop("start",  "2023-01-01")
+        end      = params.pop("end",    "2023-12-31")
+        interval = params.pop("interval", "1d")
+
+        intraday_limits = {
+            "1m": "7d", "2m": "60d", "5m": "60d", "15m": "60d",
+            "30m": "60d", "90m": "60d", "60m": "730d", "1h": "730d",
+        }
+
+        dl_kwargs = dict(
+            tickers=ticker,
+            auto_adjust=False, prepost=False, progress=False, threads=False
         )
 
-        if df_yf is None or df_yf.empty:
-            return pd.DataFrame(columns=["Date","Open","High","Low","Close","Volume","Ticker"])
+        if interval in intraday_limits:
+            df = yf.download(
+                interval=interval,
+                period=intraday_limits[interval],
+                group_by="column",           
+                **dl_kwargs)
+        else:
+            df = yf.download(
+                interval=interval,
+                start=start,
+                end=end,
+                group_by="column",        
+                **dl_kwargs)
+            
+        if df is None or df.empty:
+            raise ValueError(f"yfinance devolvió vacío para {ticker} (interval={interval}, {start}→{end}).")
 
-        df_yf = df_yf.reset_index()
+        df = df.reset_index()
+        df["Ticker"] = ticker
+        df = df.rename(columns={
+            "Date":"Date","Open":"Open","High":"High","Low":"Low","Close":"Close","Volume":"Volume"
+        })
+        return df[["Date","Open","High","Low","Close","Volume","Ticker"]]
 
-        registros = []
-        for _, row in df_yf.iterrows():
-            registros.append({
-                "Date":   row.get("Date",   row.get("Datetime")),
-                "Open":   row.get("Open"),
-                "High":   row.get("High"),
-                "Low":    row.get("Low"),
-                "Close":  row.get("Close"),
-                "Volume": row.get("Volume"),
-                "Ticker": ticker
-            })
-
-        return self._records_to_standard_pdf(registros)
-
-    def get_raw_data(self,
-                     source: str,
-                     **kwargs) -> pd.DataFrame:
+    def get_raw_data(self, source: str, **kwargs) -> pd.DataFrame:
         if source == "socket":
             return self.fetch_from_socket_or_local(
                 host=kwargs.get("host", "localhost"),
                 port=kwargs.get("port", 8080),
                 fallback_local=kwargs.get("fallback_local", True)
             )
-        elif source == "yfinance":
-            return self.fetch_from_yfinance(
-                ticker=kwargs["ticker"],
-                start=kwargs["start"],
-                end=kwargs["end"],
-                interval=kwargs.get("interval", "1d")
-            )
-        else:
-            return pd.DataFrame(columns=["Date","Open","High","Low","Close","Volume","Ticker"])
+
+        if source == "yfinance":
+            params = {
+                "ticker":   kwargs.get("ticker", "IBE.MC"),
+                "start":    kwargs.get("start",  "2023-01-01"),
+                "end":      kwargs.get("end",    "2023-12-31"),
+                "interval": kwargs.get("interval", "1d"),
+            }
+            return self.fetch_from_yfinance(**params)
+
+        return pd.DataFrame(columns=["Date","Open","High","Low","Close","Volume","Ticker"])
         
     def read_parquet_via_spark(self, spark, path: str, cols: list[str] | None = None) -> DataFrame:
-        if not os.path.exists(path):
-            logic_tmp = Logic()
-            return spark.createDataFrame([], schema=logic_tmp.EJ1A_SCHEMA)
-
-        pdf = pd.read_parquet(os.path.join(path, "data.parquet"))
-        if cols:
-            pdf = pdf[cols]
-        setattr(pd.DataFrame, "iteritems", pd.DataFrame.items)
-
-        return spark.createDataFrame(pdf)
-
-    def save_parquet(self, df_spark: DataFrame, path: str) -> None:
-        os.makedirs(path, exist_ok=True)
-
-        df_pandas = df_spark.toPandas()
+        from model.logic import Logic as L
+        schema = L().EJ1A_SCHEMA
 
         parquet_file = os.path.join(path, "data.parquet")
+
+        if not os.path.exists(parquet_file):
+            return spark.createDataFrame([], schema=schema)
+
+        try:
+            pdf = pd.read_parquet(parquet_file)
+        except Exception:
+            return spark.createDataFrame([], schema=schema)
+
+        if pdf is None or pdf.empty:
+            return spark.createDataFrame([], schema=schema)
+
+        if cols:
+            cols = [c for c in cols if c in pdf.columns]
+            if cols:
+                pdf = pdf[cols]
+
+        pdf = pdf.copy()
+        if "Date" in pdf.columns:
+            pdf["Date"] = pd.to_datetime(pdf["Date"], errors="coerce").dt.date
+        for c in ["Open","High","Low","Close","Volume"]:
+            if c in pdf.columns:
+                pdf[c] = pd.to_numeric(pdf[c], errors="coerce")
+
+        if not hasattr(pd.DataFrame, "iteritems"):
+            setattr(pd.DataFrame, "iteritems", pd.DataFrame.items)
+
+        if "Volume" in pdf.columns:
+            pdf["Volume"] = pd.to_numeric(pdf["Volume"], errors="coerce").astype(float)
+
+        return spark.createDataFrame(pdf, schema=schema)
+
+    def save_parquet(self, df_spark: DataFrame, path: str,  is_streaming: bool = False) -> None:
+        os.makedirs(path, exist_ok=True)
+
+        if is_streaming:
+            for name, dtype in df_spark.dtypes:
+                if dtype == "date":
+                    df_spark = df_spark.withColumn(name, F.date_format(F.col(name), "yyyy-MM-dd"))
+                elif dtype == "timestamp":
+                    df_spark = df_spark.withColumn(name, F.date_format(F.col(name), "yyyy-MM-dd HH:mm:ss"))
+
+        parquet_file = os.path.join(path, "data.parquet")
+        df_pandas = df_spark.toPandas()
         df_pandas.to_parquet(parquet_file, index=False)
 
-        df_spark.write.mode("append").parquet(path)
+    def get_current_eurusd(self) -> float:
+        try:
+            df = yf.download("EURUSD=X", interval="1m", period="7d",
+                            progress=False, auto_adjust=False, prepost=False,
+                            threads=False, group_by="column")
+            if df is not None and not df.empty:
+                # coge el último cierre como escalar robusto (sin FutureWarning)
+                return float(df["Close"].dropna().to_numpy()[-1])
+        except Exception:
+            pass
+        df = yf.download("EURUSD=X", interval="1d", period="5d",
+                        progress=False, auto_adjust=False, prepost=False,
+                        threads=False, group_by="column")
+        if df is not None and not df.empty:
+            return float(df["Close"].dropna().to_numpy()[-1])
+        return float("nan")
