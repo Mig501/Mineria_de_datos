@@ -1,10 +1,10 @@
-from pyspark.sql import SparkSession, DataFrame
+from pyspark.sql import SparkSession, DataFrame, Window
 from pyspark.sql.types import (
     StructType, StructField, DateType, DoubleType, StringType, TimestampType, IntegerType
 )
-from pyspark.sql.functions import col, date_format
 import pandas as pd
 from pyspark.sql import functions as F
+import numpy as np
 
 class Logic:
     EJ1A_SCHEMA = StructType([
@@ -115,25 +115,25 @@ class Logic:
         sdf = sdf.na.drop(subset=["Date","Open","High","Low","Close","Ticker"])
 
         sdf = (sdf
-            .withColumn("Open", col("Open").cast("double"))
-            .withColumn("High", col("High").cast("double"))
-            .withColumn("Low", col("Low").cast("double"))
-            .withColumn("Close", col("Close").cast("double"))
-            .withColumn("Volume", col("Volume").cast("long"))
+            .withColumn("Open", F.col("Open").cast("double"))
+            .withColumn("High", F.col("High").cast("double"))
+            .withColumn("Low", F.col("Low").cast("double"))
+            .withColumn("Close", F.col("Close").cast("double"))
+            .withColumn("Volume", F.col("Volume").cast("long"))
         )
 
         sdf = sdf.filter(
-            (col("Open")  >= 0) &
-            (col("High")  >= 0) &
-            (col("Low")   >= 0) &
-            (col("Close") >= 0) &
-            ((col("Volume") >= 0) | col("Volume").isNull())
+            (F.col("Open")  >= 0) &
+            (F.col("High")  >= 0) &
+            (F.col("Low")   >= 0) &
+            (F.col("Close") >= 0) &
+            ((F.col("Volume") >= 0) | F.col("Volume").isNull())
         )
 
         sdf = sdf.filter(
-            (col("High") >= col("Low")) &
-            (col("Close") >= col("Low")) &
-            (col("Close") <= col("High"))
+            (F.col("High") >= F.col("Low")) &
+            (F.col("Close") >= F.col("Low")) &
+            (F.col("Close") <= F.col("High"))
         )
 
         return sdf
@@ -145,11 +145,11 @@ class Logic:
             return df_current
 
         tickers_guardados = [r["Ticker"] for r in df_stored.select("Ticker").distinct().collect()]
-        df_nuevos = df_current.filter(~col("Ticker").isin(tickers_guardados))
+        df_nuevos = df_current.filter(~F.col("Ticker").isin(tickers_guardados))
         return df_nuevos
 
     def add_day_of_week(self, df: DataFrame) -> DataFrame:
-        return df.withColumn("DayOfWeek", date_format("Date", "EEEE"))
+        return df.withColumn("DayOfWeek", F.date_format("Date", "EEEE"))
 
     def map_stream_ej5(self, df_json: DataFrame, eurusd_value: float):
         now = F.current_timestamp()
@@ -176,3 +176,97 @@ class Logic:
             .select("EventTS","Date","Hour","Minute","DayOfWeek",
                     "Ticker","Open","High","Low","Close","Volume","EURUSD","RawJSON")
         )
+    
+    def add_is_friday(self, df: DataFrame) -> DataFrame:
+        return df.withColumn(
+            "IsFriday",
+            F.when(F.dayofweek(F.col("Date")) == 6, "Friday").otherwise("Weekday")
+        )
+
+    def add_daily_returns(self, df: DataFrame) -> DataFrame:
+        w = Window.partitionBy("Ticker").orderBy("Date")
+        prev_close = F.lag(F.col("Close")).over(w)
+        df_ret = df.withColumn("Return", ((F.col("Close") - prev_close) / prev_close) * 100.0)
+        return df_ret.filter(F.col("Return").isNotNull())
+
+    def prepare_friday_effect(self, df: DataFrame) -> DataFrame:
+        df1 = self.add_day_of_week(df)
+        df2 = self.add_is_friday(df1)
+        df3 = self.add_daily_returns(df2)
+        return df3.select("Date", "Ticker", "Close", "Return", "DayOfWeek", "IsFriday")
+    
+    def add_simple_return(self, df) -> DataFrame:
+        w = Window.partitionBy("Ticker").orderBy("Date")
+        return df.withColumn(
+            "Return",
+            (F.col("Close") / F.lag("Close", 1).over(w) - 1.0)
+        )
+    
+    def corr_price_volume_by_ticker(self, df: DataFrame) -> dict[str, float]:
+        if df.rdd.isEmpty():
+            return {}
+        corr_df = (
+            df.groupBy("Ticker")
+              .agg(F.corr(F.col("Close"), F.col("Volume")).alias("corr"))
+        )
+        rows = corr_df.collect()
+        return {r["Ticker"]: (float(r["corr"]) if r["corr"] is not None else float("nan"))
+                for r in rows}
+
+    def price_volume_pdf(self, df: DataFrame, ticker: str, max_points: int = 5000) -> pd.DataFrame:
+        sdf = df.filter(F.col("Ticker") == ticker).select("Date", "Close", "Volume")
+        if sdf.rdd.isEmpty():
+            return pd.DataFrame(columns=["Date", "Close", "Volume"])
+
+        pdf = sdf.toPandas()
+        pdf = pdf.dropna(subset=["Close", "Volume"])
+        if len(pdf) > max_points:
+            pdf = pdf.sample(n=max_points, random_state=42)
+        return pdf
+    
+    def normalize_parquet_any(self, pdf: pd.DataFrame) -> pd.DataFrame:
+        df = pdf.copy()
+
+        rename_map = {}
+        if "price" in df.columns and "Close" not in df.columns: rename_map["price"] = "Close"
+        if "high"  in df.columns and "High"  not in df.columns: rename_map["high"]  = "High"
+        if "low"   in df.columns and "Low"   not in df.columns: rename_map["low"]   = "Low"
+        if "volume" in df.columns and "Volume" not in df.columns: rename_map["volume"] = "Volume"
+        if "ticker" in df.columns and "Ticker" not in df.columns: rename_map["ticker"] = "Ticker"
+        if rename_map:
+            df = df.rename(columns=rename_map)
+
+        if "EventTS" not in df.columns:
+            if "Datetime" in df.columns:
+                df = df.rename(columns={"Datetime": "EventTS"})
+            elif "Date" in df.columns:
+                df["EventTS"] = pd.to_datetime(df["Date"], errors="coerce")
+        if "EventTS" in df.columns:
+            df["EventTS"] = pd.to_datetime(df["EventTS"], errors="coerce")
+
+        if "EventTS" not in df.columns or df["EventTS"].isna().all():
+            df = df.reset_index(drop=True)
+            df["EventTS"] = pd.to_datetime(pd.Series(range(len(df))), unit="s", origin="unix")
+
+        if "Close" not in df.columns and "Open" in df.columns:
+            df["Close"] = df["Open"]
+        for c in ["Close", "High", "Low", "Volume", "Ticker"]:
+            if c not in df.columns:
+                df[c] = np.nan if c != "Ticker" else "UNKNOWN"
+
+        for c in ["Close", "High", "Low"]:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+        df["Volume"] = pd.to_numeric(df["Volume"], errors="coerce")
+
+        df = df.dropna(subset=["Ticker", "Close"])
+        df = df.sort_values(["Ticker", "EventTS"]).reset_index(drop=True)
+
+        return df[["EventTS", "Ticker", "Close", "High", "Low", "Volume"]]
+
+    def add_simple_features(self, df: pd.DataFrame, sma_window:int=10) -> pd.DataFrame:
+        out = []
+        for tk, g in df.groupby("Ticker"):
+            g = g.sort_values("EventTS").copy()
+            g["SMA"] = g["Close"].rolling(sma_window, min_periods=1).mean()
+            out.append(g)
+        return pd.concat(out, ignore_index=True)

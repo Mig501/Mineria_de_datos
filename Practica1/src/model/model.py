@@ -222,3 +222,10 @@ class Model:
         if df is not None and not df.empty:
             return float(df["Close"].dropna().to_numpy()[-1])
         return float("nan")
+    
+    def read_parquet_pandas(self, parquet_dir:str) -> pd.DataFrame | None:
+        path = os.path.join(parquet_dir, "data.parquet")
+        if not os.path.exists(path):
+            print(f"No existe {path}")
+            return None
+        return pd.read_parquet(path)

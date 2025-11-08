@@ -5,6 +5,7 @@ from model.logic import Logic
 from pyspark.sql import functions as F
 from functools import reduce
 from pyspark.streaming import StreamingContext
+import os
 class Controller:
     def __init__(self, spark: SparkSession):
         self.spark = spark
@@ -172,7 +173,7 @@ class Controller:
         self.view.title("EJ4: Probando conexión de streaming")
         ssc, lines = self._build_stream(host, port, batch_seconds)
 
-        lines.pprint()
+        lines.pself.view.title()
 
         ssc.start()
         ssc.awaitTermination()
@@ -185,7 +186,7 @@ class Controller:
 
         def process_batch(time, rdd):
             if rdd.isEmpty():
-                print(f"[{time}] Micro-lote vacío")
+                self.view.title(f"[{time}] Micro-lote vacío")
                 return
 
             df_json = self.spark.read.json(rdd)
@@ -195,7 +196,7 @@ class Controller:
             df_ej5 = self.logic.map_stream_ej5(df_json, eurusd)
 
             n = df_ej5.count()
-            print(f"[{time}] filas={n} eurusd={eurusd}")
+            self.view.title(f"[{time}] filas={n} eurusd={eurusd}")
             self.view.head(df_ej5.orderBy("EventTS"), 5)
 
             if parquet_path and n > 0:
@@ -208,3 +209,68 @@ class Controller:
         ssc.awaitTerminationOrTimeout(timeout_s)
         ssc.stop(stopSparkContext=False)
         ssc.awaitTermination()
+
+    def run_ej7a(self, parquet_path: str, out_dir: str) -> None:
+        self.view.title("EJ7a:")
+
+        sdf = self.model.read_parquet_via_spark(self.spark, parquet_path)
+        if sdf.rdd.isEmpty():
+            self.view.title("No hay datos en parquet.")
+            return
+
+        sdf = self.logic.add_day_of_week(sdf)
+        sdf = self.logic.add_is_friday(sdf)
+        sdf = self.logic.add_simple_return(sdf)
+
+        sdf = sdf.filter(sdf.Return.isNotNull())
+
+        tickers = [r["Ticker"] for r in sdf.select("Ticker").distinct().collect()]
+
+        os.makedirs(out_dir, exist_ok=True)
+
+        for t in tickers:
+            sdf_t = sdf.filter(sdf.Ticker == t).orderBy("Date")
+            pdf_t = sdf_t.select("Date", "Ticker", "Return", "DayOfWeek", "IsFriday").toPandas()
+            if pdf_t.empty:
+                continue
+
+            base = os.path.join(out_dir, t.replace(".", "_"))
+            hist_path  = f"{base}_hist.png"
+            box_path   = f"{base}_box.png"
+            violin_path= f"{base}_violin.png"
+
+            self.view.save_hist_returns(pdf_t, hist_path,  title=f"{t} — Histogram of returns")
+
+            self.view.title(f"Guardado: {os.path.basename(hist_path)}")
+
+    def run_ej8(self, parquet_path: str, out_dir: str) -> None:
+        self.view.title("Ej8:")
+
+        sdf = self.model.read_parquet_via_spark(self.spark, parquet_path)
+
+        if sdf.rdd.isEmpty():
+            self.view.title("No hay datos para analizar en parquet.")
+            return
+
+        corr_map = self.logic.corr_price_volume_by_ticker(sdf)
+
+        os.makedirs(out_dir, exist_ok=True)
+
+        for ticker, corr_val in corr_map.items():
+            pdf = self.logic.price_volume_pdf(sdf, ticker)
+            if len(pdf) == 0:
+                continue
+            self.view.plot_scatter_price_volume(pdf, ticker, corr_val if corr_val == corr_val else 0.0, out_dir)
+
+        if corr_map:
+            self.view.plot_corr_bar(corr_map, out_dir)
+
+    def run_ej9(self, parquet_path:str = "./data/parquet/ej5", out_dir:str = "./output/ej9"):
+        pdf = self.model.read_parquet_pandas(parquet_path)
+        if pdf is None or pdf.empty:
+            print(f"No hay datos en {parquet_path}")
+            return
+
+        base = self.logic.normalize_parquet_any(pdf)
+        feats = self.logic.add_simple_features(base, sma_window=10)
+        self.view.plot_all_data_per_ticker(feats, out_dir, show_sma=True)
