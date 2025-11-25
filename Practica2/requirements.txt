@@ -1,0 +1,5 @@
+pyspark
+yfinance
+pandas
+mlflow
+scikit-learn
