@@ -40,9 +40,21 @@ class View:
 
     @staticmethod
     def show_gmm_results(results):
-        print("\nResultados Gaussian Mixture (varias repeticiones)\n")
+        print("\nResultados Gaussian Mixture\n")
 
         for i, df in enumerate(results):
             print(f"Repetición {i+1}")
             df.crosstab("Ticker", "prediction").show()
             print()
+
+    @staticmethod
+    def show_clusters_kmeans(df_kmeans):
+        print("\nCLUSTERS ENCONTRADOS POR KMEANS\n")
+
+        df_kmeans.groupBy("prediction").count().show()
+
+    @staticmethod
+    def show_diff_gmm_kmeans(df_dif):
+        total = df_dif.count()
+        print("\nDIFERENCIAS ENTRE GMM Y KMEANS\n")
+        print(f"Total de datos clasificados de distinta forma: {total}\n")

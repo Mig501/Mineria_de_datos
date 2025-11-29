@@ -50,7 +50,7 @@ class GaussianMixtureExperiment:
             ))
 
         return self.spark.createDataFrame(rows)
-
+    
     def run_multiple_times(self, repetitions=5):
         df = self.prepare_data()
         pipeline = PipelineFactory().create_gmm_pipeline(k=2)
@@ -59,7 +59,7 @@ class GaussianMixtureExperiment:
 
         for _ in range(repetitions):
             model = pipeline.fit(df)
-            preds = model.transform(df)
+            preds = model.transform(df).select("Ticker", "prediction")
             results.append(preds)
 
-        return results
+        return df, results

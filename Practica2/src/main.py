@@ -16,5 +16,9 @@ def main():
     # Ejercicio 5
     controller.run_experiment_ej5()
 
+    # Ejercicio 6
+    controller.run_experiment_ej6()
+
+
 if __name__ == "__main__":
     main()
