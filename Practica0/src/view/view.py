@@ -8,4 +8,5 @@ class View:
         df.printSchema()
 
     def head(self, df: DataFrame, n: int) -> None:
-        df.show(n)
+        df.show(n)  
+        

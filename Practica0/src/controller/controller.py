@@ -40,7 +40,7 @@ class Controller:
         self.view.title("Ej1-c")
 
         df_raw = self.model.load_with_struct_type(path_csv)
-
+        
         df_mod = self.logic.rename_tickers(df_raw)
 
         self.view.schema(df_mod)

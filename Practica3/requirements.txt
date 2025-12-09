@@ -1,0 +1,4 @@
+pyspark
+yfinance
+pandas
+mlflow
