@@ -11,8 +11,8 @@ class Model:
     def load_with_struct_type(self, path: str):
 
         schema = StructType([
-            StructField("Fecha", DateType(), False),
-            StructField("IBE.MC", StringType(), False),
+            StructField("Fecha", DateType(), True),
+            StructField("IBE.MC", StringType(), True),
             StructField("REP.MC", StringType(), True),
             StructField("NTGY.MC", StringType(), True),
             StructField("ELE.MC", StringType(), True),
